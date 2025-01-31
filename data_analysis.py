@@ -4,7 +4,6 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import json
-import geopandas as gpd
 import logging
 from typing import Optional, Dict, Any
 
@@ -239,7 +238,12 @@ def load_file(uploaded_file):
             elif isinstance(data, dict):
                 return pd.DataFrame([data])
         elif file_extension == 'geojson':
-            return gpd.read_file(uploaded_file)
+            try:
+                import geopandas as gpd
+                return gpd.read_file(uploaded_file)
+            except ImportError:
+                st.error("GeoJSON support requires geopandas package. Please install it or use another file format.")
+                return None
         else:
             st.error(f"Unsupported file format: .{file_extension}")
             return None
