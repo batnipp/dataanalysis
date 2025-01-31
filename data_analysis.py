@@ -220,33 +220,72 @@ def load_file(uploaded_file):
         file_extension = uploaded_file.name.split('.')[-1].lower()
         
         if file_extension == 'csv':
-            return pd.read_csv(
+            df = pd.read_csv(
                 uploaded_file,
                 on_bad_lines='skip',
                 sep=None,
                 engine='python',
                 encoding='utf-8'
             )
+            # Convert object columns to string to avoid type issues
+            for col in df.select_dtypes(['object']).columns:
+                df[col] = df[col].astype(str)
+            return df
+            
         elif file_extension in ['xls', 'xlsx']:
-            return pd.read_excel(uploaded_file)
+            df = pd.read_excel(uploaded_file)
+            # Convert object columns to string to avoid type issues
+            for col in df.select_dtypes(['object']).columns:
+                df[col] = df[col].astype(str)
+            return df
+            
         elif file_extension == 'json':
             data = json.load(uploaded_file)
             if isinstance(data, list):
-                return pd.DataFrame(data)
+                df = pd.DataFrame(data)
             elif isinstance(data, dict):
-                return pd.DataFrame([data])
-        elif file_extension == 'geojson':
-            # Try to load as regular JSON first
-            data = json.load(uploaded_file)
-            if 'features' in data:
-                # Extract properties from features
-                features = []
-                for feature in data['features']:
-                    if 'properties' in feature:
-                        features.append(feature['properties'])
-                return pd.DataFrame(features)
+                df = pd.DataFrame([data])
             else:
-                st.error("Invalid GeoJSON format or missing features")
+                st.error("Invalid JSON format")
+                return None
+            # Convert object columns to string to avoid type issues
+            for col in df.select_dtypes(['object']).columns:
+                df[col] = df[col].astype(str)
+            return df
+            
+        elif file_extension == 'geojson':
+            try:
+                # Read the file content
+                content = uploaded_file.read()
+                # Parse JSON
+                data = json.loads(content.decode('utf-8'))
+                
+                # Extract features and properties
+                features_data = []
+                if 'features' in data:
+                    for feature in data['features']:
+                        if 'properties' in feature and feature['properties']:
+                            # Convert all values to strings to avoid type issues
+                            properties = {k: str(v) if v is not None else ''
+                                       for k, v in feature['properties'].items()}
+                            features_data.append(properties)
+                
+                if not features_data:
+                    st.error("No valid properties found in GeoJSON features")
+                    return None
+                    
+                # Create DataFrame and handle types
+                df = pd.DataFrame(features_data)
+                # Convert all columns to string type
+                for col in df.columns:
+                    df[col] = df[col].astype(str)
+                
+                return df
+            except json.JSONDecodeError:
+                st.error("Invalid GeoJSON format")
+                return None
+            except Exception as e:
+                st.error(f"Error processing GeoJSON: {str(e)}")
                 return None
         else:
             st.error(f"Unsupported file format: .{file_extension}")
