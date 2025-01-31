@@ -1,31 +1,3 @@
-
-import subprocess
-import sys
-import importlib
-import pkg_resources
-
-def install_package(package):
-    try:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
-    except subprocess.CalledProcessError:
-        print(f"Error installing {package}")
-
-# List of required packages
-required_packages = {
-    'streamlit': 'streamlit',
-    'pandas': 'pandas',
-    'numpy': 'numpy',
-    'plotly': 'plotly',
-    'openpyxl': 'openpyxl'  # For Excel file support
-}
-
-# Check and install missing packages
-installed_packages = {pkg.key for pkg in pkg_resources.working_set}
-for package, import_name in required_packages.items():
-    if package not in installed_packages:
-        print(f"Installing {package}...")
-        install_package(package)
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -248,14 +220,12 @@ def load_file(uploaded_file):
         file_extension = uploaded_file.name.split('.')[-1].lower()
         
         if file_extension == 'csv':
-            # Add error_bad_lines=False to skip problematic rows
-            # Add sep=None to automatically detect the delimiter
             return pd.read_csv(
                 uploaded_file,
-                on_bad_lines='skip',  # Skip lines with too many fields
-                sep=None,             # Automatically detect separator
-                engine='python',      # Use python engine for more flexible parsing
-                encoding='utf-8'      # Specify encoding
+                on_bad_lines='skip',
+                sep=None,
+                engine='python',
+                encoding='utf-8'
             )
         elif file_extension in ['xls', 'xlsx']:
             return pd.read_excel(uploaded_file)
@@ -266,11 +236,17 @@ def load_file(uploaded_file):
             elif isinstance(data, dict):
                 return pd.DataFrame([data])
         elif file_extension == 'geojson':
-            try:
-                import geopandas as gpd
-                return gpd.read_file(uploaded_file)
-            except ImportError:
-                st.error("GeoJSON support requires geopandas package. Please install it or use another file format.")
+            # Try to load as regular JSON first
+            data = json.load(uploaded_file)
+            if 'features' in data:
+                # Extract properties from features
+                features = []
+                for feature in data['features']:
+                    if 'properties' in feature:
+                        features.append(feature['properties'])
+                return pd.DataFrame(features)
+            else:
+                st.error("Invalid GeoJSON format or missing features")
                 return None
         else:
             st.error(f"Unsupported file format: .{file_extension}")
