@@ -1,3 +1,31 @@
+
+import subprocess
+import sys
+import importlib
+import pkg_resources
+
+def install_package(package):
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+    except subprocess.CalledProcessError:
+        print(f"Error installing {package}")
+
+# List of required packages
+required_packages = {
+    'streamlit': 'streamlit',
+    'pandas': 'pandas',
+    'numpy': 'numpy',
+    'plotly': 'plotly',
+    'openpyxl': 'openpyxl'  # For Excel file support
+}
+
+# Check and install missing packages
+installed_packages = {pkg.key for pkg in pkg_resources.working_set}
+for package, import_name in required_packages.items():
+    if package not in installed_packages:
+        print(f"Installing {package}...")
+        install_package(package)
+
 import streamlit as st
 import pandas as pd
 import numpy as np
