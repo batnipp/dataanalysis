@@ -3,6 +3,14 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
+import json
+import geopandas as gpd
+import logging
+from typing import Optional, Dict, Any
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Set page config
 st.set_page_config(page_title="Data Analysis Tool", layout="wide")
@@ -167,64 +175,86 @@ def analyze_column_distribution(df, column):
         )
     
     with pie_col:
-        # Create pie chart
-        # If there are too many values, only show top 10 and group others
-        if len(value_counts) > 10:
-            top_values = value_counts.head(10)
-            others_sum = value_counts[10:].sum()
-            pie_values = pd.concat([top_values, pd.Series({'Others': others_sum})])
-            
+        try:
+            # Create pie chart
+            # If there are too many values, only show top 10 and group others
+            if len(value_counts) > 10:
+                top_values = value_counts.head(10)
+                others_sum = value_counts[10:].sum() if len(value_counts) > 10 else 0
+                pie_values = pd.concat([top_values, pd.Series({'Others': others_sum})])
+            else:
+                pie_values = value_counts
+
             # Calculate percentages for labels
             pie_percentages = (pie_values / pie_values.sum() * 100).round(1)
-            pie_labels = [f"{label} ({value:,}, {percentage}%)" 
+            pie_labels = [f"{str(label)} ({value:,}, {percentage}%)" 
                          for label, value, percentage 
                          in zip(pie_values.index, pie_values.values, pie_percentages)]
-        else:
-            pie_values = value_counts
-            pie_percentages = (pie_values / pie_values.sum() * 100).round(1)
-            pie_labels = [f"{label} ({value:,}, {percentage}%)" 
-                         for label, value, percentage 
-                         in zip(pie_values.index, pie_values.values, pie_percentages)]
-        
-        fig = go.Figure(data=[go.Pie(
-            labels=pie_labels,
-            values=pie_values,
-            hole=0.3,
-            textinfo='none',  # Don't show text on pie slices
-            showlegend=True,  # Show legend instead
-        )])
-        
-        fig.update_layout(
-            title=f"Value Distribution",
-            height=400,
-            legend=dict(
-                yanchor="top",
-                y=1.0,
-                xanchor="left",
-                x=1.0
+            
+            fig = go.Figure(data=[go.Pie(
+                labels=pie_labels,
+                values=pie_values,
+                hole=0.3,
+                textinfo='none',  # Don't show text on pie slices
+                showlegend=True,  # Show legend instead
+            )])
+            
+            fig.update_layout(
+                title=f"Value Distribution",
+                height=400,
+                legend=dict(
+                    yanchor="top",
+                    y=1.0,
+                    xanchor="left",
+                    x=1.0
+                )
             )
-        )
-        st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True)
+        except Exception as e:
+            st.warning(f"Could not create pie chart due to data structure: {str(e)}")
     
     st.markdown("---")  # Add a separator between columns
 
+def load_file(uploaded_file):
+    """Load and process the uploaded file"""
+    try:
+        file_extension = uploaded_file.name.split('.')[-1].lower()
+        
+        if file_extension == 'csv':
+            # Add error_bad_lines=False to skip problematic rows
+            # Add sep=None to automatically detect the delimiter
+            return pd.read_csv(
+                uploaded_file,
+                on_bad_lines='skip',  # Skip lines with too many fields
+                sep=None,             # Automatically detect separator
+                engine='python',      # Use python engine for more flexible parsing
+                encoding='utf-8'      # Specify encoding
+            )
+        elif file_extension in ['xls', 'xlsx']:
+            return pd.read_excel(uploaded_file)
+        elif file_extension == 'json':
+            data = json.load(uploaded_file)
+            if isinstance(data, list):
+                return pd.DataFrame(data)
+            elif isinstance(data, dict):
+                return pd.DataFrame([data])
+        elif file_extension == 'geojson':
+            return gpd.read_file(uploaded_file)
+        else:
+            st.error(f"Unsupported file format: .{file_extension}")
+            return None
+    except Exception as e:
+        st.error(f"Error loading file: {str(e)}")
+        return None
+
 # File upload
-uploaded_file = st.file_uploader("Choose a file", type=["csv", "xlsx"])
+uploaded_file = st.file_uploader("Choose a file", type=["csv", "xlsx", "json", "geojson"])
 
 if uploaded_file is not None:
-    # Load data based on file type
-    try:
-        if uploaded_file.name.endswith('.csv'):
-            df = pd.read_csv(uploaded_file)
-        else:  # Excel file
-            # Add Excel sheet selector if the file is Excel
-            excel_file = pd.ExcelFile(uploaded_file)
-            if len(excel_file.sheet_names) > 1:
-                sheet_name = st.selectbox("Select sheet:", excel_file.sheet_names)
-            else:
-                sheet_name = excel_file.sheet_names[0]
-            df = pd.read_excel(uploaded_file, sheet_name=sheet_name)
-        
+    # Load data
+    df = load_file(uploaded_file)
+    
+    if df is not None:
         # Dataset Overview
         st.header("Dataset Overview")
         total_cells = df.shape[0] * df.shape[1]
@@ -251,7 +281,7 @@ if uploaded_file is not None:
         for dtype, count in type_counts.items():
             st.write(f"- {dtype}: {count}")
         
-        # Data Preview (100 rows)
+        # Data Preview
         st.subheader("Data Preview (100 rows)")
         st.dataframe(df.head(100))
         
@@ -272,18 +302,12 @@ if uploaded_file is not None:
         # Add some space after the navigation
         st.markdown("---")
         
-        # Column-by-column analysis
+        # Column Analysis
         st.header("Column Analysis")
         
         # Analyze each column
         for column in df.columns:
-            # Create an anchor for this column
-            st.markdown(f"<div id='analysis-of-{column.lower()}'></div>", unsafe_allow_html=True)
             analyze_column_distribution(df, column)
-    
-    except Exception as e:
-        st.error(f"Error loading file: {str(e)}")
-        st.info("Please make sure your file is properly formatted and try again.")
 
 else:
-    st.info("Please upload a CSV or Excel file to begin analysis")
+    st.info("Please upload a CSV, Excel, JSON, or GeoJSON file to begin analysis")
